@@ -21,6 +21,12 @@ if not OPERATOR_USERNAME or not OPERATOR_PASSWORD:
         "Les identifiants opérateur doivent être configurés."
     )
 
+print("DEBUG AUTH")
+print("USERNAME présent :", bool(OPERATOR_USERNAME))
+print("USERNAME longueur :", len(OPERATOR_USERNAME))
+print("PASSWORD présent :", bool(OPERATOR_PASSWORD))
+print("PASSWORD longueur :", len(OPERATOR_PASSWORD))
+
 
 class GatewayHandler(BaseHTTPRequestHandler):
 
@@ -66,6 +72,18 @@ class GatewayHandler(BaseHTTPRequestHandler):
                 {
                     "status": "online",
                     "gateway": "AI Safety Gateway"
+                }
+            )
+            return
+
+        if self.path == "/debug-auth":
+            self.send_json(
+                200,
+                {
+                    "username_present": bool(OPERATOR_USERNAME),
+                    "username_length": len(OPERATOR_USERNAME),
+                    "password_present": bool(OPERATOR_PASSWORD),
+                    "password_length": len(OPERATOR_PASSWORD)
                 }
             )
             return

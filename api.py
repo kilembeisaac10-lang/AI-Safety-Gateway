@@ -2,6 +2,8 @@ import os
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
+import secrets
+import hmac
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -11,6 +13,14 @@ if PROJECT_DIR not in sys.path:
 from gateway import SafetyGateway
 
 gateway = SafetyGateway()
+
+OPERATOR_USERNAME = os.environ.get("AI_OPERATOR_USERNAME")
+OPERATOR_PASSWORD = os.environ.get("AI_OPERATOR_PASSWORD")
+
+if not OPERATOR_USERNAME or not OPERATOR_PASSWORD:
+    raise RuntimeError(
+        "Les identifiants opérateur doivent être configurés."
+    )
 
 
 class GatewayHandler(BaseHTTPRequestHandler):
@@ -24,6 +34,30 @@ class GatewayHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
         self.wfile.write(body)
+
+    def read_json_body(self):
+        content_length = int(
+            self.headers.get("Content-Length", "0")
+        )
+
+        if content_length <= 0:
+            raise ValueError("Request body is required")
+
+        if content_length > 64 * 1024:
+            raise ValueError("Request body is too large")
+
+        body = self.rfile.read(content_length)
+
+        data = json.loads(
+            body.decode("utf-8")
+        )
+
+        if not isinstance(data, dict):
+            raise ValueError(
+                "JSON body must be an object"
+            )
+
+        return data
 
     def do_GET(self):
 
@@ -46,43 +80,108 @@ class GatewayHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
 
-        if self.path != "/evaluate":
-            self.send_json(
-                404,
-                {
-                    "error": "Not found"
-                }
-            )
+        if self.path == "/session":
+            self.handle_session()
             return
 
+        if self.path == "/evaluate":
+            self.handle_evaluate()
+            return
+
+        self.send_json(
+            404,
+            {
+                "error": "Not found"
+            }
+        )
+
+    def handle_session(self):
+
         try:
-            content_length = int(
-                self.headers.get("Content-Length", "0")
-            )
+            data = self.read_json_body()
 
-            if content_length <= 0:
+            username = data.get("username")
+            password = data.get("password")
+
+            if not isinstance(username, str):
                 self.send_json(
                     400,
                     {
-                        "error": "Request body is required"
+                        "error": "username is required"
                     }
                 )
                 return
 
-            body = self.rfile.read(content_length)
-
-            data = json.loads(
-                body.decode("utf-8")
-            )
-
-            if not isinstance(data, dict):
+            if not isinstance(password, str):
                 self.send_json(
                     400,
                     {
-                        "error": "JSON body must be an object"
+                        "error": "password is required"
                     }
                 )
                 return
+
+            username_ok = hmac.compare_digest(
+                username,
+                OPERATOR_USERNAME
+            )
+
+            password_ok = hmac.compare_digest(
+                password,
+                OPERATOR_PASSWORD
+            )
+
+            if not username_ok or not password_ok:
+                self.send_json(
+                    401,
+                    {
+                        "error": "Invalid credentials"
+                    }
+                )
+                return
+
+            session_id = gateway.create_session(
+                username,
+                "administrator"
+            )
+
+            self.send_json(
+                200,
+                {
+                    "status": "authenticated",
+                    "session_id": session_id,
+                    "role": "administrator"
+                }
+            )
+
+        except json.JSONDecodeError:
+            self.send_json(
+                400,
+                {
+                    "error": "Invalid JSON"
+                }
+            )
+
+        except ValueError as error:
+            self.send_json(
+                400,
+                {
+                    "error": str(error)
+                }
+            )
+
+        except Exception:
+            self.send_json(
+                500,
+                {
+                    "error": "Internal server error"
+                }
+            )
+
+    def handle_evaluate(self):
+
+        try:
+            data = self.read_json_body()
 
             session_id = data.get("session_id")
             tool = data.get("tool")
@@ -142,6 +241,14 @@ class GatewayHandler(BaseHTTPRequestHandler):
                 400,
                 {
                     "error": "Invalid JSON"
+                }
+            )
+
+        except ValueError as error:
+            self.send_json(
+                400,
+                {
+                    "error": str(error)
                 }
             )
 

@@ -2,7 +2,6 @@ import os
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
-import secrets
 import hmac
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))

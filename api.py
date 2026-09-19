@@ -148,6 +148,12 @@ class GatewayHandler(BaseHTTPRequestHandler):
                 OPERATOR_PASSWORD
             )
 
+            print("DEBUG SESSION")
+            print("USERNAME MATCH :", username_ok)
+            print("PASSWORD MATCH :", password_ok)
+            print("USERNAME LENGTH RECEIVED :", len(username))
+            print("PASSWORD LENGTH RECEIVED :", len(password))
+
             if not username_ok or not password_ok:
                 self.send_json(
                     401,

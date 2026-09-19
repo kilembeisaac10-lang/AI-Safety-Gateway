@@ -21,35 +21,54 @@ if not OPERATOR_USERNAME or not OPERATOR_PASSWORD:
         "Les identifiants opérateur doivent être configurés."
     )
 
-print("DEBUG AUTH", flush=True)
-print("USERNAME présent :", bool(OPERATOR_USERNAME), flush=True)
-print("USERNAME longueur :", len(OPERATOR_USERNAME), flush=True)
-print("PASSWORD présent :", bool(OPERATOR_PASSWORD), flush=True)
-print("PASSWORD longueur :", len(OPERATOR_PASSWORD), flush=True)
-
 
 class GatewayHandler(BaseHTTPRequestHandler):
 
     def send_json(self, status, data):
+
         body = json.dumps(data).encode("utf-8")
 
         self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
+
+        self.send_header(
+            "Content-Type",
+            "application/json"
+        )
+
+        self.send_header(
+            "Content-Length",
+            str(len(body))
+        )
+
+        self.send_header(
+            "X-Content-Type-Options",
+            "nosniff"
+        )
+
+        self.send_header(
+            "Cache-Control",
+            "no-store"
+        )
+
         self.end_headers()
 
         self.wfile.write(body)
 
     def read_json_body(self):
+
         content_length = int(
             self.headers.get("Content-Length", "0")
         )
 
         if content_length <= 0:
-            raise ValueError("Request body is required")
+            raise ValueError(
+                "Request body is required"
+            )
 
         if content_length > 64 * 1024:
-            raise ValueError("Request body is too large")
+            raise ValueError(
+                "Request body is too large"
+            )
 
         body = self.rfile.read(content_length)
 
@@ -67,6 +86,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
     def do_GET(self):
 
         if self.path == "/health":
+
             self.send_json(
                 200,
                 {
@@ -74,18 +94,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
                     "gateway": "AI Safety Gateway"
                 }
             )
-            return
 
-        if self.path == "/debug-auth":
-            self.send_json(
-                200,
-                {
-                    "username_present": bool(OPERATOR_USERNAME),
-                    "username_length": len(OPERATOR_USERNAME),
-                    "password_present": bool(OPERATOR_PASSWORD),
-                    "password_length": len(OPERATOR_PASSWORD)
-                }
-            )
             return
 
         self.send_json(
@@ -98,11 +107,21 @@ class GatewayHandler(BaseHTTPRequestHandler):
     def do_POST(self):
 
         if self.path == "/session":
+
             self.handle_session()
+
             return
 
         if self.path == "/evaluate":
+
             self.handle_evaluate()
+
+            return
+
+        if self.path == "/emergency-stop":
+
+            self.handle_emergency_stop()
+
             return
 
         self.send_json(
@@ -115,27 +134,32 @@ class GatewayHandler(BaseHTTPRequestHandler):
     def handle_session(self):
 
         try:
+
             data = self.read_json_body()
 
             username = data.get("username")
             password = data.get("password")
 
             if not isinstance(username, str):
+
                 self.send_json(
                     400,
                     {
                         "error": "username is required"
                     }
                 )
+
                 return
 
             if not isinstance(password, str):
+
                 self.send_json(
                     400,
                     {
                         "error": "password is required"
                     }
                 )
+
                 return
 
             username_ok = hmac.compare_digest(
@@ -148,27 +172,15 @@ class GatewayHandler(BaseHTTPRequestHandler):
                 OPERATOR_PASSWORD
             )
 
-            print("DEBUG SESSION", flush=True)
-            print("USERNAME MATCH :", username_ok, flush=True)
-            print("PASSWORD MATCH :", password_ok, flush=True)
-            print(
-                "USERNAME LENGTH RECEIVED :",
-                len(username),
-                flush=True
-            )
-            print(
-                "PASSWORD LENGTH RECEIVED :",
-                len(password),
-                flush=True
-            )
-
             if not username_ok or not password_ok:
+
                 self.send_json(
                     401,
                     {
                         "error": "Invalid credentials"
                     }
                 )
+
                 return
 
             session_id = gateway.create_session(
@@ -186,6 +198,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
             )
 
         except json.JSONDecodeError:
+
             self.send_json(
                 400,
                 {
@@ -194,6 +207,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
             )
 
         except ValueError as error:
+
             self.send_json(
                 400,
                 {
@@ -202,6 +216,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
             )
 
         except Exception:
+
             self.send_json(
                 500,
                 {
@@ -212,6 +227,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
     def handle_evaluate(self):
 
         try:
+
             data = self.read_json_body()
 
             session_id = data.get("session_id")
@@ -220,39 +236,47 @@ class GatewayHandler(BaseHTTPRequestHandler):
             args = data.get("args", {})
 
             if not isinstance(session_id, str):
+
                 self.send_json(
                     400,
                     {
                         "error": "session_id is required"
                     }
                 )
+
                 return
 
             if not isinstance(tool, str):
+
                 self.send_json(
                     400,
                     {
                         "error": "tool is required"
                     }
                 )
+
                 return
 
             if not isinstance(operation, str):
+
                 self.send_json(
                     400,
                     {
                         "error": "operation is required"
                     }
                 )
+
                 return
 
             if not isinstance(args, dict):
+
                 self.send_json(
                     400,
                     {
                         "error": "args must be an object"
                     }
                 )
+
                 return
 
             result = gateway.evaluate(
@@ -268,6 +292,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
             )
 
         except json.JSONDecodeError:
+
             self.send_json(
                 400,
                 {
@@ -276,6 +301,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
             )
 
         except ValueError as error:
+
             self.send_json(
                 400,
                 {
@@ -284,11 +310,105 @@ class GatewayHandler(BaseHTTPRequestHandler):
             )
 
         except Exception as error:
+
             print(
                 "Erreur /evaluate :",
                 type(error).__name__,
                 flush=True
             )
+
+            self.send_json(
+                500,
+                {
+                    "error": "Internal server error"
+                }
+            )
+
+    def handle_emergency_stop(self):
+
+        try:
+
+            data = self.read_json_body()
+
+            session_id = data.get("session_id")
+            enabled = data.get("enabled")
+
+            if not isinstance(session_id, str):
+
+                self.send_json(
+                    400,
+                    {
+                        "error": "session_id is required"
+                    }
+                )
+
+                return
+
+            if not isinstance(enabled, bool):
+
+                self.send_json(
+                    400,
+                    {
+                        "error": "enabled must be a boolean"
+                    }
+                )
+
+                return
+
+            if not gateway.auth.validate_session(session_id):
+
+                self.send_json(
+                    401,
+                    {
+                        "error": "Invalid or expired session"
+                    }
+                )
+
+                return
+
+            if not gateway.auth.has_permission(
+                session_id,
+                "manage"
+            ):
+
+                self.send_json(
+                    403,
+                    {
+                        "error": "Administrator permission required"
+                    }
+                )
+
+                return
+
+            gateway.stop.set_stop(enabled)
+
+            self.send_json(
+                200,
+                {
+                    "status": "updated",
+                    "emergency_stop": enabled
+                }
+            )
+
+        except json.JSONDecodeError:
+
+            self.send_json(
+                400,
+                {
+                    "error": "Invalid JSON"
+                }
+            )
+
+        except ValueError as error:
+
+            self.send_json(
+                400,
+                {
+                    "error": str(error)
+                }
+            )
+
+        except Exception:
 
             self.send_json(
                 500,
@@ -313,17 +433,21 @@ if __name__ == "__main__":
         "AI Safety Gateway API démarrée",
         flush=True
     )
+
     print(
         f"Port : {port}",
         flush=True
     )
 
     try:
+
         server.serve_forever()
 
     except KeyboardInterrupt:
+
         print(
             "API arrêtée",
             flush=True
         )
+
         server.server_close()

@@ -21,11 +21,11 @@ if not OPERATOR_USERNAME or not OPERATOR_PASSWORD:
         "Les identifiants opérateur doivent être configurés."
     )
 
-print("DEBUG AUTH")
-print("USERNAME présent :", bool(OPERATOR_USERNAME))
-print("USERNAME longueur :", len(OPERATOR_USERNAME))
-print("PASSWORD présent :", bool(OPERATOR_PASSWORD))
-print("PASSWORD longueur :", len(OPERATOR_PASSWORD))
+print("DEBUG AUTH", flush=True)
+print("USERNAME présent :", bool(OPERATOR_USERNAME), flush=True)
+print("USERNAME longueur :", len(OPERATOR_USERNAME), flush=True)
+print("PASSWORD présent :", bool(OPERATOR_PASSWORD), flush=True)
+print("PASSWORD longueur :", len(OPERATOR_PASSWORD), flush=True)
 
 
 class GatewayHandler(BaseHTTPRequestHandler):
@@ -148,11 +148,19 @@ class GatewayHandler(BaseHTTPRequestHandler):
                 OPERATOR_PASSWORD
             )
 
-            print("DEBUG SESSION")
-            print("USERNAME MATCH :", username_ok)
-            print("PASSWORD MATCH :", password_ok)
-            print("USERNAME LENGTH RECEIVED :", len(username))
-            print("PASSWORD LENGTH RECEIVED :", len(password))
+            print("DEBUG SESSION", flush=True)
+            print("USERNAME MATCH :", username_ok, flush=True)
+            print("PASSWORD MATCH :", password_ok, flush=True)
+            print(
+                "USERNAME LENGTH RECEIVED :",
+                len(username),
+                flush=True
+            )
+            print(
+                "PASSWORD LENGTH RECEIVED :",
+                len(password),
+                flush=True
+            )
 
             if not username_ok or not password_ok:
                 self.send_json(
@@ -278,7 +286,8 @@ class GatewayHandler(BaseHTTPRequestHandler):
         except Exception as error:
             print(
                 "Erreur /evaluate :",
-                type(error).__name__
+                type(error).__name__,
+                flush=True
             )
 
             self.send_json(
@@ -300,12 +309,21 @@ if __name__ == "__main__":
         GatewayHandler
     )
 
-    print("AI Safety Gateway API démarrée")
-    print(f"Port : {port}")
+    print(
+        "AI Safety Gateway API démarrée",
+        flush=True
+    )
+    print(
+        f"Port : {port}",
+        flush=True
+    )
 
     try:
         server.serve_forever()
 
     except KeyboardInterrupt:
-        print("API arrêtée")
+        print(
+            "API arrêtée",
+            flush=True
+        )
         server.server_close()

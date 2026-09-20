@@ -1,8 +1,10 @@
 import os
 import sys
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import hmac
+import threading
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -22,11 +24,85 @@ if not OPERATOR_USERNAME or not OPERATOR_PASSWORD:
     )
 
 
+# --------------------------------------------------
+# RATE LIMITING
+# --------------------------------------------------
+
+LOGIN_WINDOW = 60
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_BLOCK_TIME = 300
+
+_login_lock = threading.Lock()
+_login_attempts = {}
+
+
+def get_client_key(handler):
+
+    forwarded_for = handler.headers.get(
+        "X-Forwarded-For"
+    )
+
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+
+    return handler.client_address[0]
+
+
+def check_login_rate_limit(client_key):
+
+    now = time.time()
+
+    with _login_lock:
+
+        record = _login_attempts.get(
+            client_key
+        )
+
+        if record is None:
+            record = {
+                "attempts": [],
+                "blocked_until": 0
+            }
+
+            _login_attempts[
+                client_key
+            ] = record
+
+        if now < record["blocked_until"]:
+            return False
+
+        record["attempts"] = [
+            timestamp
+            for timestamp in record["attempts"]
+            if now - timestamp < LOGIN_WINDOW
+        ]
+
+        if len(record["attempts"]) >= LOGIN_MAX_ATTEMPTS:
+
+            record["blocked_until"] = (
+                now + LOGIN_BLOCK_TIME
+            )
+
+            record["attempts"] = []
+
+            return False
+
+        record["attempts"].append(now)
+
+        return True
+
+
+# --------------------------------------------------
+# HTTP HANDLER
+# --------------------------------------------------
+
 class GatewayHandler(BaseHTTPRequestHandler):
 
     def send_json(self, status, data):
 
-        body = json.dumps(data).encode("utf-8")
+        body = json.dumps(
+            data
+        ).encode("utf-8")
 
         self.send_response(status)
 
@@ -50,6 +126,11 @@ class GatewayHandler(BaseHTTPRequestHandler):
             "no-store"
         )
 
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'none'; frame-ancestors 'none'"
+        )
+
         self.end_headers()
 
         self.wfile.write(body)
@@ -57,7 +138,10 @@ class GatewayHandler(BaseHTTPRequestHandler):
     def read_json_body(self):
 
         content_length = int(
-            self.headers.get("Content-Length", "0")
+            self.headers.get(
+                "Content-Length",
+                "0"
+            )
         )
 
         if content_length <= 0:
@@ -70,7 +154,9 @@ class GatewayHandler(BaseHTTPRequestHandler):
                 "Request body is too large"
             )
 
-        body = self.rfile.read(content_length)
+        body = self.rfile.read(
+            content_length
+        )
 
         data = json.loads(
             body.decode("utf-8")
@@ -133,30 +219,60 @@ class GatewayHandler(BaseHTTPRequestHandler):
 
     def handle_session(self):
 
+        client_key = get_client_key(
+            self
+        )
+
+        if not check_login_rate_limit(
+            client_key
+        ):
+
+            self.send_json(
+                429,
+                {
+                    "error": "Too many login attempts"
+                }
+            )
+
+            return
+
         try:
 
             data = self.read_json_body()
 
-            username = data.get("username")
-            password = data.get("password")
+            username = data.get(
+                "username"
+            )
 
-            if not isinstance(username, str):
+            password = data.get(
+                "password"
+            )
+
+            if not isinstance(
+                username,
+                str
+            ):
 
                 self.send_json(
                     400,
                     {
-                        "error": "username is required"
+                        "error":
+                        "username is required"
                     }
                 )
 
                 return
 
-            if not isinstance(password, str):
+            if not isinstance(
+                password,
+                str
+            ):
 
                 self.send_json(
                     400,
                     {
-                        "error": "password is required"
+                        "error":
+                        "password is required"
                     }
                 )
 
@@ -177,7 +293,8 @@ class GatewayHandler(BaseHTTPRequestHandler):
                 self.send_json(
                     401,
                     {
-                        "error": "Invalid credentials"
+                        "error":
+                        "Invalid credentials"
                     }
                 )
 
@@ -191,9 +308,14 @@ class GatewayHandler(BaseHTTPRequestHandler):
             self.send_json(
                 200,
                 {
-                    "status": "authenticated",
-                    "session_id": session_id,
-                    "role": "administrator"
+                    "status":
+                    "authenticated",
+
+                    "session_id":
+                    session_id,
+
+                    "role":
+                    "administrator"
                 }
             )
 
@@ -202,7 +324,8 @@ class GatewayHandler(BaseHTTPRequestHandler):
             self.send_json(
                 400,
                 {
-                    "error": "Invalid JSON"
+                    "error":
+                    "Invalid JSON"
                 }
             )
 
@@ -211,7 +334,8 @@ class GatewayHandler(BaseHTTPRequestHandler):
             self.send_json(
                 400,
                 {
-                    "error": str(error)
+                    "error":
+                    str(error)
                 }
             )
 
@@ -220,7 +344,8 @@ class GatewayHandler(BaseHTTPRequestHandler):
             self.send_json(
                 500,
                 {
-                    "error": "Internal server error"
+                    "error":
+                    "Internal server error"
                 }
             )
 
@@ -230,50 +355,78 @@ class GatewayHandler(BaseHTTPRequestHandler):
 
             data = self.read_json_body()
 
-            session_id = data.get("session_id")
-            tool = data.get("tool")
-            operation = data.get("operation")
-            args = data.get("args", {})
+            session_id = data.get(
+                "session_id"
+            )
 
-            if not isinstance(session_id, str):
+            tool = data.get(
+                "tool"
+            )
+
+            operation = data.get(
+                "operation"
+            )
+
+            args = data.get(
+                "args",
+                {}
+            )
+
+            if not isinstance(
+                session_id,
+                str
+            ):
 
                 self.send_json(
                     400,
                     {
-                        "error": "session_id is required"
+                        "error":
+                        "session_id is required"
                     }
                 )
 
                 return
 
-            if not isinstance(tool, str):
+            if not isinstance(
+                tool,
+                str
+            ):
 
                 self.send_json(
                     400,
                     {
-                        "error": "tool is required"
+                        "error":
+                        "tool is required"
                     }
                 )
 
                 return
 
-            if not isinstance(operation, str):
+            if not isinstance(
+                operation,
+                str
+            ):
 
                 self.send_json(
                     400,
                     {
-                        "error": "operation is required"
+                        "error":
+                        "operation is required"
                     }
                 )
 
                 return
 
-            if not isinstance(args, dict):
+            if not isinstance(
+                args,
+                dict
+            ):
 
                 self.send_json(
                     400,
                     {
-                        "error": "args must be an object"
+                        "error":
+                        "args must be an object"
                     }
                 )
 
@@ -296,7 +449,8 @@ class GatewayHandler(BaseHTTPRequestHandler):
             self.send_json(
                 400,
                 {
-                    "error": "Invalid JSON"
+                    "error":
+                    "Invalid JSON"
                 }
             )
 
@@ -305,22 +459,18 @@ class GatewayHandler(BaseHTTPRequestHandler):
             self.send_json(
                 400,
                 {
-                    "error": str(error)
+                    "error":
+                    str(error)
                 }
             )
 
-        except Exception as error:
-
-            print(
-                "Erreur /evaluate :",
-                type(error).__name__,
-                flush=True
-            )
+        except Exception:
 
             self.send_json(
                 500,
                 {
-                    "error": "Internal server error"
+                    "error":
+                    "Internal server error"
                 }
             )
 
@@ -330,37 +480,53 @@ class GatewayHandler(BaseHTTPRequestHandler):
 
             data = self.read_json_body()
 
-            session_id = data.get("session_id")
-            enabled = data.get("enabled")
+            session_id = data.get(
+                "session_id"
+            )
 
-            if not isinstance(session_id, str):
+            enabled = data.get(
+                "enabled"
+            )
+
+            if not isinstance(
+                session_id,
+                str
+            ):
 
                 self.send_json(
                     400,
                     {
-                        "error": "session_id is required"
+                        "error":
+                        "session_id is required"
                     }
                 )
 
                 return
 
-            if not isinstance(enabled, bool):
+            if not isinstance(
+                enabled,
+                bool
+            ):
 
                 self.send_json(
                     400,
                     {
-                        "error": "enabled must be a boolean"
+                        "error":
+                        "enabled must be a boolean"
                     }
                 )
 
                 return
 
-            if not gateway.auth.validate_session(session_id):
+            if not gateway.auth.validate_session(
+                session_id
+            ):
 
                 self.send_json(
                     401,
                     {
-                        "error": "Invalid or expired session"
+                        "error":
+                        "Invalid or expired session"
                     }
                 )
 
@@ -374,19 +540,25 @@ class GatewayHandler(BaseHTTPRequestHandler):
                 self.send_json(
                     403,
                     {
-                        "error": "Administrator permission required"
+                        "error":
+                        "Administrator permission required"
                     }
                 )
 
                 return
 
-            gateway.stop.set_stop(enabled)
+            gateway.stop.set_stop(
+                enabled
+            )
 
             self.send_json(
                 200,
                 {
-                    "status": "updated",
-                    "emergency_stop": enabled
+                    "status":
+                    "updated",
+
+                    "emergency_stop":
+                    enabled
                 }
             )
 
@@ -395,7 +567,8 @@ class GatewayHandler(BaseHTTPRequestHandler):
             self.send_json(
                 400,
                 {
-                    "error": "Invalid JSON"
+                    "error":
+                    "Invalid JSON"
                 }
             )
 
@@ -404,7 +577,8 @@ class GatewayHandler(BaseHTTPRequestHandler):
             self.send_json(
                 400,
                 {
-                    "error": str(error)
+                    "error":
+                    str(error)
                 }
             )
 
@@ -413,7 +587,8 @@ class GatewayHandler(BaseHTTPRequestHandler):
             self.send_json(
                 500,
                 {
-                    "error": "Internal server error"
+                    "error":
+                    "Internal server error"
                 }
             )
 
@@ -421,7 +596,10 @@ class GatewayHandler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
 
     port = int(
-        os.environ.get("PORT", "8081")
+        os.environ.get(
+            "PORT",
+            "8081"
+        )
     )
 
     server = HTTPServer(

@@ -35,17 +35,10 @@ LOGIN_BLOCK_TIME = 300
 _login_lock = threading.Lock()
 _login_attempts = {}
 
-
 def get_client_key(handler):
 
-    forwarded_for = handler.headers.get(
-        "X-Forwarded-For"
-    )
-
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
-
     return handler.client_address[0]
+
 
 
 def check_login_rate_limit(client_key):

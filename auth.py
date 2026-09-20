@@ -47,7 +47,38 @@ class AuthManager:
         self.secret = secret.encode("utf-8")
         self.sessions = {}
 
-    def create_session(self, username, role):
+    def _build_signature(
+        self,
+        username,
+        role,
+        created_at
+    ):
+
+        message = (
+            f"{username}:{role}:{created_at}"
+        )
+
+        return hmac.new(
+            self.secret,
+            message.encode("utf-8"),
+            hashlib.sha256
+        ).hexdigest()
+
+    def create_session(
+        self,
+        username,
+        role
+    ):
+
+        if not isinstance(username, str):
+            raise TypeError(
+                "Username must be a string"
+            )
+
+        if not username:
+            raise ValueError(
+                "Username cannot be empty"
+            )
 
         if role not in ALLOWED_ROLES:
             raise ValueError(
@@ -56,52 +87,113 @@ class AuthManager:
 
         session_id = secrets.token_urlsafe(32)
 
-        timestamp = str(int(time.time()))
+        created_at = int(time.time())
 
-        message = f"{username}:{role}:{timestamp}"
-
-        signature = hmac.new(
-            self.secret,
-            message.encode("utf-8"),
-            hashlib.sha256
-        ).hexdigest()
+        signature = self._build_signature(
+            username,
+            role,
+            created_at
+        )
 
         self.sessions[session_id] = {
             "username": username,
             "role": role,
-            "created_at": int(timestamp),
+            "created_at": created_at,
             "signature": signature,
             "revoked": False,
         }
 
         return session_id
 
-    def validate_session(self, session_id):
+    def validate_session(
+        self,
+        session_id
+    ):
 
-        session = self.sessions.get(session_id)
-
-        if session is None:
+        if not isinstance(session_id, str):
             return False
 
-        if session["revoked"]:
+        session = self.sessions.get(
+            session_id
+        )
+
+        if not isinstance(session, dict):
             return False
 
-        if time.time() - session["created_at"] > SESSION_TTL:
+        username = session.get("username")
+        role = session.get("role")
+        created_at = session.get("created_at")
+        signature = session.get("signature")
+        revoked = session.get("revoked")
+
+        if not isinstance(username, str):
+            return False
+
+        if not username:
+            return False
+
+        if role not in ALLOWED_ROLES:
+            return False
+
+        if not isinstance(created_at, int):
+            return False
+
+        if not isinstance(signature, str):
+            return False
+
+        if not isinstance(revoked, bool):
+            return False
+
+        if revoked:
+            return False
+
+        if time.time() - created_at > SESSION_TTL:
             del self.sessions[session_id]
+            return False
+
+        expected_signature = self._build_signature(
+            username,
+            role,
+            created_at
+        )
+
+        if not hmac.compare_digest(
+            signature,
+            expected_signature
+        ):
             return False
 
         return True
 
-    def get_role(self, session_id):
+    def get_role(
+        self,
+        session_id
+    ):
 
-        if not self.validate_session(session_id):
+        if not self.validate_session(
+            session_id
+        ):
             return None
 
-        return self.sessions[session_id]["role"]
+        return self.sessions[
+            session_id
+        ]["role"]
 
-    def has_permission(self, session_id, permission):
+    def has_permission(
+        self,
+        session_id,
+        permission
+    ):
 
-        role = self.get_role(session_id)
+        if not isinstance(
+            permission,
+            str
+        ):
+            return False
+
+        role = self.get_role(
+            session_id
+        )
 
         if role is None:
             return False
@@ -111,21 +203,36 @@ class AuthManager:
             set()
         )
 
-    def revoke_session(self, session_id):
+    def revoke_session(
+        self,
+        session_id
+    ):
 
-        session = self.sessions.get(session_id)
+        if not isinstance(
+            session_id,
+            str
+        ):
+            return False
+
+        session = self.sessions.get(
+            session_id
+        )
 
         if session is None:
             return False
 
-        del self.sessions[session_id]
+        del self.sessions[
+            session_id
+        ]
 
         return True
 
 
 if __name__ == "__main__":
 
-    auth = AuthManager(AI_GATEWAY_SECRET)
+    auth = AuthManager(
+        AI_GATEWAY_SECRET
+    )
 
     admin_session = auth.create_session(
         "isaac",
